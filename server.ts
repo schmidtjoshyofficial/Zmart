@@ -171,7 +171,7 @@ async function appendJournal(entry: JournalEntry) {
 
 
 async function createManagedWalletForUser(user: UserAccount, users: UserAccount[]) {
-  const { stdout } = await execPromise("npx -y zerion-cli wallet create --json", {
+  const { stdout } = await execPromise("npx zerion-cli wallet create --json", {
     env: { ...process.env, ZERION_API_KEY: process.env.ZERION_API_KEY || "" },
   });
   const parsed = JSON.parse(stdout || "{}");
@@ -191,7 +191,7 @@ async function createManagedWalletForUser(user: UserAccount, users: UserAccount[
   };
 }
 async function fetchPortfolio(address: string) {
-  const { stdout } = await execPromise(`npx -y zerion-cli portfolio ${address} --json`, { env: { ...process.env, ZERION_API_KEY: process.env.ZERION_API_KEY || "" } });
+  const { stdout } = await execPromise(`npx zerion-cli portfolio ${address} --json`, { env: { ...process.env, ZERION_API_KEY: process.env.ZERION_API_KEY || "" } });
   return JSON.parse(stdout);
 }
 async function fetchCoinGeckoBaseMarkets(perPage: number) {
@@ -223,7 +223,7 @@ async function checkWhaleBonus(symbol: string, whaleWallets: string[]) {
   const since = Date.now() - 6 * 60 * 60 * 1000;
   for (const whale of whaleWallets) {
     try {
-      const { stdout } = await execPromise(`npx -y zerion-cli history ${whale} --limit 20 --json`, { env: { ...process.env, ZERION_API_KEY: process.env.ZERION_API_KEY || "" } });
+      const { stdout } = await execPromise(`npx zerion-cli history ${whale} --limit 20 --json`, { env: { ...process.env, ZERION_API_KEY: process.env.ZERION_API_KEY || "" } });
       const txs = JSON.parse(stdout);
       const bought = Array.isArray(txs) && txs.some((tx: any) => {
         const ts = new Date(tx?.timestamp || tx?.time || 0).getTime();
@@ -289,7 +289,7 @@ function getDecision(convictionScore: number, timingScore: number, policy: Polic
 async function executeSwap(_user: UserAccount, symbol: string, amountUsd: number) {
   if (!EXECUTE_TRADES) return { txHash: null };
   if (!MANAGED_EXECUTION_WALLET) throw new Error("managed_execution_wallet_not_configured");
-  const cmd = `npx -y zerion-cli swap --from USDC --to ${symbol} --amount ${amountUsd} --chain base --wallet ${MANAGED_EXECUTION_WALLET} --slippage 0.5 --json`;
+  const cmd = `npx zerion-cli swap --from USDC --to ${symbol} --amount ${amountUsd} --chain base --wallet ${MANAGED_EXECUTION_WALLET} --slippage 0.5 --json`;
   const { stdout } = await execPromise(cmd, { env: { ...process.env, ZERION_API_KEY: process.env.ZERION_API_KEY || "" } });
   const parsed = JSON.parse(stdout || "{}");
   return { txHash: parsed.txHash || parsed.hash || null };
