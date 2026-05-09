@@ -323,6 +323,7 @@ async function scoreToken(token: CandidateToken, portfolio: any, whaleWallets: s
   return { token, convictionScore, timingScore, combinedScore: convictionScore * 0.5 + timingScore * 0.5 };
 }
 async function runAgentForUser(user: UserAccount, watchlist: CandidateToken[], policy: Policy) {
+  console.log(`[Cycle] Processing user ${user.name} (${user.id})...`);
   if (!user.walletAddress) throw new Error("wallet_not_set");
   const stats = await getSpendStats(user.id);
   const block = runPolicyChecks(policy, stats);
@@ -338,6 +339,7 @@ async function runAgentForUser(user: UserAccount, watchlist: CandidateToken[], p
   let finalAmount = decision.amountUsd;
   let txHash: string | null = null;
   if (finalAction === "buy") {
+    console.log(`[Decision] BUY ${best.token.symbol} for user ${user.id} (Amount: $${finalAmount})`);
     const spendLeft = Math.max(0, policy.maxDailySpendUsd - stats.dailySpend);
     const amount = Math.min(finalAmount, policy.maxSingleTradeUsd, spendLeft);
     if (amount > 0) { txHash = (await executeSwap(user, best.token.symbol, amount)).txHash; finalAmount = amount; } else { finalAction = "skip"; finalReason = "daily_spend_exhausted"; finalAmount = 0; }
@@ -359,6 +361,7 @@ async function runAgentForUser(user: UserAccount, watchlist: CandidateToken[], p
 }
 async function runAgentCycle() {
   if (memoryState.isRunning) return;
+  console.log(`[Cycle] Starting agent cycle at ${new Date().toISOString()}`);
   memoryState.isRunning = true;
   memoryState.lastError = null;
   await persistState();
@@ -369,11 +372,16 @@ async function runAgentCycle() {
     const users = (await readUsers()).filter((u) => u.isAgentEnabled);
     for (const user of users) {
       try { await runAgentForUser(user, watchlist, memoryState.policy); } catch (e: any) {
+        console.error(`[Cycle] User ${user.id} failed: ${e.message}`);
         await appendJournal({ timestamp: new Date().toISOString(), userId: user.id, token: "N/A", symbol: "N/A", action: "skip", amountUsd: 0, convictionScore: 0, timingScore: 0, combinedScore: null, reason: e?.message || "user_cycle_failed", txHash: null, walletAddress: user.walletAddress || "unset" });
       }
     }
-  } catch (e: any) { memoryState.lastError = e?.message || "cycle_failed"; }
+  } catch (e: any) { 
+    console.error(`[Cycle] Fatal error: ${e.message}`);
+    memoryState.lastError = e?.message || "cycle_failed"; 
+  }
   finally {
+    console.log(`[Cycle] Finished. Next run at ${new Date(Date.now() + CYCLE_MS).toISOString()}`);
     memoryState.isRunning = false;
     memoryState.lastRunAt = new Date().toISOString();
     memoryState.nextRunAt = new Date(Date.now() + CYCLE_MS).toISOString();
@@ -405,28 +413,21 @@ async function handleTelegramCommand(update: any) {
   const command = rawCommand.toLowerCase();
   const arg = rest.join(" ").trim();
 
-  // Main Menu Buttons
-  const mainMenu = {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "📊 Check Status", callback_data: "/status" }, { text: "🚀 Run Cycle", callback_data: "/run" }],
-        [{ text: "📖 View Journal", callback_data: "/journal" }, { text: "🐋 Whale List", callback_data: "/whales" }],
-        [{ text: "🛑 Pause Agent", callback_data: "/pause" }, { text: "✅ Resume Agent", callback_data: "/resume" }],
-        [{ text: "❓ Help", callback_data: "/help" }]
-      ]
-    }
-  };
-
-  if (command === "/start" || command === "/help" || command === "menu") {
-    const welcome = [
-      "🚀 *Conviction DCA Agent*",
+  if (command === "/start" || command === "/help") {
+    const helpText = [
+      "🤖 *Conviction DCA Agent*",
       "Autonomous memecoin discovery and DCA execution on Base.",
       "",
-      "🛡️ *Security First*: We only monitor your provided address. Trades execute from the operator's managed fund.",
-      "",
-      "👇 *Select an action below:*",
+      "/register <address> - Register your Base wallet for monitoring",
+      "/status - Check agent status and current wallet",
+      "/run - Manually trigger a scanning cycle",
+      "/journal - View your recent trade history",
+      "/whales <addresses> - Update whale wallets (comma-separated)",
+      "/pause - Stop the agent for your account",
+      "/resume - Restart the agent",
+      "/deletewallet - Clear your registered address",
     ].join("\n");
-    return sendTelegramMessage(chatId, welcome, mainMenu);
+    return sendTelegramMessage(chatId, helpText);
   }
 
   if (command === "/register") {
@@ -436,7 +437,7 @@ async function handleTelegramCommand(update: any) {
     me.walletAddress = arg;
     me.isAgentEnabled = true;
     await writeUsers(users);
-    return sendTelegramMessage(chatId, `✅ *Wallet Registered!*\nAddress: \`${arg}\`\n\nThe agent is now active and monitoring this wallet for allocation weighting.`, mainMenu);
+    return sendTelegramMessage(chatId, `✅ *Wallet Registered!*\nAddress: \`${arg}\`\n\nThe agent is now active and monitoring this wallet.`);
   }
 
   if (command === "/status") {
@@ -449,17 +450,17 @@ async function handleTelegramCommand(update: any) {
       "",
       me.walletAddress ? `💰 _Deposit Base USDC to your wallet to allow the agent to weigh your portfolio._` : "⚠️ _Use /register to set up your wallet._"
     ].join("\n");
-    return sendTelegramMessage(chatId, status, mainMenu);
+    return sendTelegramMessage(chatId, status);
   }
 
   if (command === "/run") { 
     runAgentCycle().catch(console.error); 
-    return sendTelegramMessage(chatId, "🚀 *Manual scanning cycle initiated...*\nYou will receive a notification if any trades meet the conviction criteria.", mainMenu); 
+    return sendTelegramMessage(chatId, "🚀 *Manual scanning cycle initiated...*\nYou will receive a notification if any trades meet criteria."); 
   }
 
   if (command === "/journal") {
     const rows = (await readJournal()).filter((j) => j.userId === me.id).slice(0, 5);
-    if (!rows.length) return sendTelegramMessage(chatId, "📖 *Journal is empty.*\nThe agent hasn't made any decisions for your account yet.", mainMenu);
+    if (!rows.length) return sendTelegramMessage(chatId, "📖 *Journal is empty.*");
     
     const logs = rows.map((j) => {
       const time = new Date(j.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -467,44 +468,47 @@ async function handleTelegramCommand(update: any) {
       return `\`${time}\` | ${emoji} *${j.symbol}* ${j.amountUsd ? `($${j.amountUsd})` : ""} | _${j.reason}_`;
     }).join("\n");
     
-    return sendTelegramMessage(chatId, `📖 *Recent Activity:*\n\n${logs}`, mainMenu);
+    return sendTelegramMessage(chatId, `📖 *Recent Activity:*\n\n${logs}`);
   }
 
   if (command === "/whales") {
     if (!arg) {
       const current = getEffectiveWhaleWallets(me);
-      return sendTelegramMessage(chatId, `🐋 *Whale Tracking* (${current.length} wallets)\n\n\`${current.join("\n")}\`\n\nTo update, send:\n\`/whales 0x..., 0x...\``, mainMenu);
+      return sendTelegramMessage(chatId, `🐋 *Whale Tracking* (${current.length} wallets)\n\n\`${current.join("\n")}\`\n\nTo update:\n\`/whales 0x..., 0x...\``);
     }
     const wallets = arg.split(",").map((x) => x.trim()).filter(Boolean);
-    if (!wallets.every(isValidEvmAddress)) return sendTelegramMessage(chatId, "❌ *Invalid format.*\nPlease send a comma-separated list of valid 0x addresses.");
+    if (!wallets.every(isValidEvmAddress)) return sendTelegramMessage(chatId, "❌ *Invalid format.*");
     me.whaleWallets = wallets; 
     await writeUsers(users);
-    return sendTelegramMessage(chatId, `✅ *Whale list updated!*\nTracking ${wallets.length} high-conviction wallets.`, mainMenu);
+    return sendTelegramMessage(chatId, `✅ *Whale list updated!*`);
   }
 
   if (command === "/pause") { 
     me.isAgentEnabled = false; 
     await writeUsers(users); 
-    return sendTelegramMessage(chatId, "🛑 *Agent Paused.*\nMonitoring and execution are now stopped for your account.", mainMenu); 
+    return sendTelegramMessage(chatId, "🛑 *Agent Paused.*"); 
   }
 
   if (command === "/resume") {
-    if (!me.walletAddress) return sendTelegramMessage(chatId, "❌ *No wallet registered.*\nRegister your address first to enable the agent:\n`/register 0x...`", mainMenu);
+    if (!me.walletAddress) return sendTelegramMessage(chatId, "❌ *No wallet registered.*");
     me.isAgentEnabled = true; 
     await writeUsers(users); 
-    return sendTelegramMessage(chatId, "✅ *Agent Resumed.*\nScanning and monitoring are back online.", mainMenu);
+    return sendTelegramMessage(chatId, "✅ *Agent Resumed.*");
   }
 
   if (command === "/deletewallet") {
     me.walletAddress = "";
     me.isAgentEnabled = false;
     await writeUsers(users);
-    return sendTelegramMessage(chatId, "🗑️ *Wallet Deleted.*\nYour registration has been cleared.", mainMenu);
+    return sendTelegramMessage(chatId, "🗑️ *Wallet Deleted.*");
   }
 }
 function startTelegramBot() {
-  if (!process.env.TELEGRAM_BOT_TOKEN) return;
-  if (telegramPoller) clearInterval(telegramPoller);
+  if (!process.env.TELEGRAM_BOT_TOKEN) {
+    console.warn("[Telegram] TELEGRAM_BOT_TOKEN not set. Bot disabled.");
+    return;
+  }
+  console.log("[Telegram] Starting bot poller...");
   telegramPoller = setInterval(async () => {
     try {
       const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getUpdates`;
