@@ -28,6 +28,9 @@ const MANAGED_EXECUTION_WALLET = String(process.env.MANAGED_EXECUTION_WALLET || 
 const ZERION_API_KEY = process.env.ZERION_API_KEY || "";
 const ZERION_BASE_URL = "https://api.zerion.io/v1";
 
+const cache: Record<string, { data: any, timestamp: number }> = {};
+const CACHE_TTL_MS = 60 * 1000; // 1 minute cache
+
 const JOURNAL_PATH = path.join(process.cwd(), "journal.json");
 const STATE_PATH = path.join(process.cwd(), "agent-state.json");
 const USERS_PATH = path.join(process.cwd(), "users.json");
@@ -201,31 +204,44 @@ async function createManagedWalletForUser(user: UserAccount, users: UserAccount[
 }
 
 async function fetchPortfolio(address: string) {
+  const cacheKey = `portfolio_${address}`;
+  if (cache[cacheKey] && Date.now() - cache[cacheKey].timestamp < CACHE_TTL_MS) return cache[cacheKey].data;
+
   try {
     const res = await axios.get(`${ZERION_BASE_URL}/wallets/${address}/portfolio?filter[chain_ids]=base`, { 
       headers: getZerionHeaders(),
       timeout: 10_000 
     });
     const portfolio = res.data?.data?.attributes;
-    // Map to the expected structure for the dashboard
-    return {
+    const result = {
       total_value: portfolio?.total?.value || 0,
-      positions: [] // Fetch positions separately if needed
+      positions: [] 
     };
+    cache[cacheKey] = { data: result, timestamp: Date.now() };
+    return result;
   } catch (e: any) {
-    console.error(`[Zerion API] Portfolio fetch failed: ${e.message}`);
-    return { total_value: 0, positions: [] };
+    if (e?.response?.status === 429) console.warn(`[Zerion API] Rate limited (429) on portfolio ${address}`);
+    else console.error(`[Zerion API] Portfolio fetch failed: ${e.message}`);
+    return cache[cacheKey]?.data || { total_value: 0, positions: [] };
   }
 }
 
 async function fetchPositions(address: string) {
+  const cacheKey = `positions_${address}`;
+  if (cache[cacheKey] && Date.now() - cache[cacheKey].timestamp < CACHE_TTL_MS) return cache[cacheKey].data;
+
   try {
     const res = await axios.get(`${ZERION_BASE_URL}/wallets/${address}/positions/?filter[chain_ids]=base`, { 
       headers: getZerionHeaders(),
       timeout: 10_000 
     });
-    return res.data?.data || [];
-  } catch { return []; }
+    const result = res.data?.data || [];
+    cache[cacheKey] = { data: result, timestamp: Date.now() };
+    return result;
+  } catch (e: any) {
+    if (e?.response?.status === 429) console.warn(`[Zerion API] Rate limited (429) on positions ${address}`);
+    return cache[cacheKey]?.data || []; 
+  }
 }
 async function fetchCoinGeckoBaseMarkets(perPage: number) {
   const response = await axios.get("https://api.coingecko.com/api/v3/coins/markets", { params: { vs_currency: "usd", category: "base-ecosystem", order: "market_cap_desc", per_page: perPage, page: 1, sparkline: false, price_change_percentage: "24h" }, timeout: 20_000 });
@@ -256,6 +272,9 @@ async function checkWhaleBonus(symbol: string, whaleWallets: string[]) {
   const since = Date.now() - 6 * 60 * 60 * 1000;
   for (const whale of whaleWallets) {
     try {
+      // Add a small delay to avoid 429
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       const res = await axios.get(`${ZERION_BASE_URL}/wallets/${whale}/transactions/?filter[chain_ids]=base`, { 
         headers: getZerionHeaders(),
         timeout: 10_000 
@@ -437,64 +456,109 @@ async function ensureTelegramUser(chatId: string, username?: string) {
 }
 async function handleTelegramCommand(update: any) {
   const msg = update?.message;
-  const text = String(msg?.text || "").trim();
-  if (!msg?.chat?.id || !text.startsWith("/")) return;
-  const chatId = String(msg.chat.id);
-  const user = await ensureTelegramUser(chatId, msg?.from?.username || msg?.from?.first_name);
+  const callback = update?.callback_query;
+  
+  let chatId: string;
+  let text: string;
+  let from: any;
+
+  if (callback) {
+    chatId = String(callback.message.chat.id);
+    text = callback.data;
+    from = callback.from;
+    // Acknowledge the callback to remove loading state on button
+    axios.post(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, { callback_query_id: callback.id }).catch(() => {});
+  } else if (msg) {
+    chatId = String(msg.chat.id);
+    text = String(msg.text || "").trim();
+    from = msg.from;
+  } else {
+    return;
+  }
+
+  if (!text.startsWith("/")) return;
+
+  const user = await ensureTelegramUser(chatId, from?.username || from?.first_name);
   const users = await readUsers();
   const me = users.find((u) => u.id === user.id)!;
   const [rawCommand, ...rest] = text.split(" ");
   const command = rawCommand.toLowerCase();
   const arg = rest.join(" ").trim();
 
+  const webAppUrl = process.env.RAILWAY_STATIC_URL ? `https://${process.env.RAILWAY_STATIC_URL}` : null;
+
+  // Main Menu Buttons
+  const mainMenu = {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📊 Check Status", callback_data: "/status" }, { text: "🚀 Run Cycle", callback_data: "/run" }],
+        [{ text: "💰 Deposit Info", callback_data: "/deposit" }, { text: "📖 View Journal", callback_data: "/journal" }],
+        [{ text: "🐋 Whale List", callback_data: "/whales" }, { text: "❓ Help", callback_data: "/help" }],
+        [{ text: "🛑 Pause", callback_data: "/pause" }, { text: "✅ Resume", callback_data: "/resume" }],
+        webAppUrl ? [{ text: "🌐 Open Web Dashboard", url: webAppUrl }] : []
+      ].filter(r => r.length > 0)
+    }
+  };
+
   if (command === "/start" || command === "/help") {
-    const helpText = [
-      "🤖 *Conviction DCA Agent*",
-      "Autonomous memecoin discovery and DCA execution on Base.",
+    const welcome = [
+      "🚀 *Conviction DCA Agent*",
+      "Autonomous discovery and execution on Base chain.",
       "",
-      "/register <address> - Register your Base wallet for monitoring",
-      "/status - Check agent status and current wallet",
-      "/run - Manually trigger a scanning cycle",
-      "/journal - View your recent trade history",
-      "/whales <addresses> - Update whale wallets (comma-separated)",
-      "/pause - Stop the agent for your account",
-      "/resume - Restart the agent",
-      "/deletewallet - Clear your registered address",
+      "🛡️ *Security*: We monitor your wallet for weighting, but trades execute from the operator's managed fund.",
+      "",
+      "👇 *Use the buttons below to control your agent:*",
     ].join("\n");
-    return sendTelegramMessage(chatId, helpText);
+    return sendTelegramMessage(chatId, welcome, mainMenu);
   }
 
   if (command === "/register") {
     if (!arg || !isValidEvmAddress(arg)) {
-      return sendTelegramMessage(chatId, "❌ *Invalid wallet.*\nPlease provide a valid Base 0x address:\n`/register 0x...`", { parse_mode: "Markdown" });
+      return sendTelegramMessage(chatId, "❌ *Invalid wallet.*\nSend: `/register 0xYourBaseAddress`", { parse_mode: "Markdown" });
     }
     me.walletAddress = arg;
     me.isAgentEnabled = true;
     await writeUsers(users);
-    return sendTelegramMessage(chatId, `✅ *Wallet Registered!*\nAddress: \`${arg}\`\n\nThe agent is now active and monitoring this wallet.`);
+    return sendTelegramMessage(chatId, `✅ *Wallet Registered!*\nAddress: \`${arg}\`\n\nThe agent is now monitoring this wallet.`, mainMenu);
   }
 
   if (command === "/status") {
     const status = [
-      `🤖 *Agent Status:* ${me.isAgentEnabled ? "✅ ACTIVE" : "🛑 PAUSED"}`,
+      `🤖 *Agent:* ${me.isAgentEnabled ? "✅ ACTIVE" : "🛑 PAUSED"}`,
       `👛 *Wallet:* \`${me.walletAddress || "Not Set"}\``,
-      `📊 *Tokens Monitored:* ${memoryState.monitoredTokenCount}`,
-      `🕒 *Last Scan:* ${memoryState.lastRunAt ? new Date(memoryState.lastRunAt).toLocaleString() : "_Never_"}`,
-      `⏭️ *Next Scan:* ${memoryState.nextRunAt ? new Date(memoryState.nextRunAt).toLocaleString() : "_N/A_"}`,
+      `📊 *Tokens:* ${memoryState.monitoredTokenCount}`,
+      `🕒 *Last Run:* ${memoryState.lastRunAt ? new Date(memoryState.lastRunAt).toLocaleTimeString() : "_Never_"}`,
       "",
-      me.walletAddress ? `💰 _Deposit Base USDC to your wallet to allow the agent to weigh your portfolio._` : "⚠️ _Use /register to set up your wallet._"
+      me.walletAddress ? `💰 _Keep Base USDC in your wallet to enable portfolio-weighted trades._` : "⚠️ _Use /register to set up your wallet._"
     ].join("\n");
-    return sendTelegramMessage(chatId, status);
+    return sendTelegramMessage(chatId, status, mainMenu);
+  }
+
+  if (command === "/deposit") {
+    const depositText = [
+      "💰 *Funding Your Agent*",
+      "",
+      "The agent looks at your portfolio balance to decide trade sizes. To allow the agent to trade for you, ensure you have *Base USDC* in your registered wallet:",
+      "",
+      `👛 *Your Wallet:* \`${me.walletAddress || "Not Registered"}\``,
+      "",
+      "1️⃣ Open your wallet (MetaMask, Coinbase Wallet, etc.)",
+      "2️⃣ Ensure you are on the *Base* network.",
+      "3️⃣ Deposit/Swap for *USDC*.",
+      "",
+      "_The agent will automatically detect your balance during the next cycle._"
+    ].join("\n");
+    return sendTelegramMessage(chatId, depositText, mainMenu);
   }
 
   if (command === "/run") { 
     runAgentCycle().catch(console.error); 
-    return sendTelegramMessage(chatId, "🚀 *Manual scanning cycle initiated...*\nYou will receive a notification if any trades meet criteria."); 
+    return sendTelegramMessage(chatId, "🚀 *Manual scanning cycle initiated...*", mainMenu); 
   }
 
   if (command === "/journal") {
     const rows = (await readJournal()).filter((j) => j.userId === me.id).slice(0, 5);
-    if (!rows.length) return sendTelegramMessage(chatId, "📖 *Journal is empty.*");
+    if (!rows.length) return sendTelegramMessage(chatId, "📖 *Journal is empty.*", mainMenu);
     
     const logs = rows.map((j) => {
       const time = new Date(j.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -502,39 +566,39 @@ async function handleTelegramCommand(update: any) {
       return `\`${time}\` | ${emoji} *${j.symbol}* ${j.amountUsd ? `($${j.amountUsd})` : ""} | _${j.reason}_`;
     }).join("\n");
     
-    return sendTelegramMessage(chatId, `📖 *Recent Activity:*\n\n${logs}`);
+    return sendTelegramMessage(chatId, `📖 *Recent Activity:*\n\n${logs}`, mainMenu);
   }
 
   if (command === "/whales") {
     if (!arg) {
       const current = getEffectiveWhaleWallets(me);
-      return sendTelegramMessage(chatId, `🐋 *Whale Tracking* (${current.length} wallets)\n\n\`${current.join("\n")}\`\n\nTo update:\n\`/whales 0x..., 0x...\``);
+      return sendTelegramMessage(chatId, `🐋 *Whale Tracking* (${current.length})\n\n\`${current.join("\n")}\`\n\nTo update: \`/whales 0x..., 0x...\``, mainMenu);
     }
     const wallets = arg.split(",").map((x) => x.trim()).filter(Boolean);
-    if (!wallets.every(isValidEvmAddress)) return sendTelegramMessage(chatId, "❌ *Invalid format.*");
+    if (!wallets.every(isValidEvmAddress)) return sendTelegramMessage(chatId, "❌ *Invalid format.*", mainMenu);
     me.whaleWallets = wallets; 
     await writeUsers(users);
-    return sendTelegramMessage(chatId, `✅ *Whale list updated!*`);
+    return sendTelegramMessage(chatId, `✅ *Whale list updated!*`, mainMenu);
   }
 
   if (command === "/pause") { 
     me.isAgentEnabled = false; 
     await writeUsers(users); 
-    return sendTelegramMessage(chatId, "🛑 *Agent Paused.*"); 
+    return sendTelegramMessage(chatId, "🛑 *Agent Paused.*", mainMenu); 
   }
 
   if (command === "/resume") {
-    if (!me.walletAddress) return sendTelegramMessage(chatId, "❌ *No wallet registered.*");
+    if (!me.walletAddress) return sendTelegramMessage(chatId, "❌ *No wallet registered.*", mainMenu);
     me.isAgentEnabled = true; 
     await writeUsers(users); 
-    return sendTelegramMessage(chatId, "✅ *Agent Resumed.*");
+    return sendTelegramMessage(chatId, "✅ *Agent Resumed.*", mainMenu);
   }
 
   if (command === "/deletewallet") {
     me.walletAddress = "";
     me.isAgentEnabled = false;
     await writeUsers(users);
-    return sendTelegramMessage(chatId, "🗑️ *Wallet Deleted.*");
+    return sendTelegramMessage(chatId, "🗑️ *Wallet Deleted.*", mainMenu);
   }
 }
 function startTelegramBot() {
