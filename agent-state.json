@@ -1,0 +1,26 @@
+{
+  "isRunning": false,
+  "lastRunAt": "2026-05-09T15:12:40.946Z",
+  "nextRunAt": "2026-05-09T16:12:40.950Z",
+  "lastError": "getaddrinfo ENOTFOUND api.coingecko.com",
+  "lastRecommendation": null,
+  "latestWatchlist": [],
+  "monitoredTokenCount": 0,
+  "policy": {
+    "maxSingleTradeUsd": 50,
+    "maxDailySpendUsd": 50,
+    "maxWeeklySpendUsd": 150,
+    "maxTradesPerDay": 3,
+    "cooldownBetweenTradesMinutes": 60,
+    "allowedChains": [
+      "base"
+    ],
+    "minMarketCapUsd": 100000000,
+    "minLiquidityUsd": 500000,
+    "minTokenAgeDays": 30,
+    "minConvictionScore": 45,
+    "minTimingScore": 40,
+    "minCombinedScore": 48,
+    "emergencyStop": false
+  }
+}

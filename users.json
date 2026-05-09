@@ -1,0 +1,41 @@
+[
+  {
+    "id": "usr_udk5iyj4",
+    "name": "Test User",
+    "walletAddress": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+    "createdAt": "2026-05-09T14:46:00.096Z",
+    "isAgentEnabled": true,
+    "whaleWallets": [
+      "0x16a27462b4d61bdd72cbbabd3e43e11791f7a28c",
+      "0x564e82722bb9a4e46f48875c25de11aad310883e",
+      "0x307576dd4f73f91bb8c4a2edb762938e8e067d31",
+      "0xbad36f8edd1e2109baa37197c05074151a70cc05",
+      "0xbefa750ed568cc84970eb4fd506af4ff599c42d0",
+      "0xe274c0b274c9f5ae1ee565c3845b3dff59661cda",
+      "0xa3586764d08f9562338a8f7a4bd42f855ab29bd1",
+      "0xcf748f1bd1e2a1e2a1cef35a480acfd5220c9e7d",
+      "0xf8191d98ae98d2f7abdfb63a9b0b812b93c873aa",
+      "0xa7d587fe21392fa6c2c4a0a3357ec8937b393044"
+    ]
+  },
+  {
+    "id": "usr_kaqz7sjt",
+    "name": "web3fran",
+    "walletAddress": "",
+    "telegramChatId": "7970761935",
+    "createdAt": "2026-05-09T15:01:14.145Z",
+    "isAgentEnabled": false,
+    "whaleWallets": [
+      "0x16a27462b4d61bdd72cbbabd3e43e11791f7a28c",
+      "0x564e82722bb9a4e46f48875c25de11aad310883e",
+      "0x307576dd4f73f91bb8c4a2edb762938e8e067d31",
+      "0xbad36f8edd1e2109baa37197c05074151a70cc05",
+      "0xbefa750ed568cc84970eb4fd506af4ff599c42d0",
+      "0xe274c0b274c9f5ae1ee565c3845b3dff59661cda",
+      "0xa3586764d08f9562338a8f7a4bd42f855ab29bd1",
+      "0xcf748f1bd1e2a1e2a1cef35a480acfd5220c9e7d",
+      "0xf8191d98ae98d2f7abdfb63a9b0b812b93c873aa",
+      "0xa7d587fe21392fa6c2c4a0a3357ec8937b393044"
+    ]
+  }
+]

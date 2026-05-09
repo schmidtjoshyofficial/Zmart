@@ -1,0 +1,6 @@
+{
+  "name": "Conviction DCA Agent",
+  "description": "An autonomous onchain DCA agent dashboard on Base chain, featuring a two-gate conviction and timing scoring engine.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
