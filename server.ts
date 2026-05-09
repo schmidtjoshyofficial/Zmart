@@ -409,6 +409,7 @@ async function handleTelegramCommand(update: any) {
   const chatId = String(msg.chat.id);
   const user = await ensureTelegramUser(chatId, msg?.from?.username || msg?.from?.first_name);
   const users = await readUsers();
+  const me = users.find((u) => u.id === user.id)!;
   const [rawCommand, ...rest] = text.split(" ");
   const command = rawCommand.toLowerCase();
   const arg = rest.join(" ").trim();
