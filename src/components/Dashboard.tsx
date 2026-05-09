@@ -3,7 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Activity, TrendingUp, Zap, ShieldAlert, Bot, History, Settings, ExternalLink, ChevronRight, AlertCircle, CheckCircle2, XCircle, RefreshCw, User } from 'lucide-react';
+import { Activity, TrendingUp, Zap, ShieldAlert, Bot, History, Settings, ExternalLink, ChevronRight, AlertCircle, CheckCircle2, XCircle, RefreshCw, User, Wallet } from 'lucide-react';
+
+declare global {
+  interface Window {
+    ethereum?: any;
+  }
+}
 import { useState, useEffect, useMemo, type FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { calculateVolumeConsistency, calculatePriceTrend, calculateWalletAllocation, calculateVolatilityPenalty, calculateRSIScore, calculatePriceVsHigh, calculateVolumeShape, computeConvictionScore, computeTimingScore } from '../lib/scoring';
@@ -16,13 +22,14 @@ export default function Dashboard() {
   const [isScanning, setIsScanning] = useState(false);
   const [tokens, setTokens] = useState<any[]>([]);
   const [showPolicyModal, setShowPolicyModal] = useState(false);
-  const [walletAddress, setWalletAddress] = useState("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"); // Default vitalik for demo
+  const [walletAddress, setWalletAddress] = useState(""); 
   const [portfolio, setPortfolio] = useState<any>(null);
   const [tokenHistory, setTokenHistory] = useState<any>(null);
   const [isChangingAddress, setIsChangingAddress] = useState(false);
   const [newAddress, setNewAddress] = useState("");
   const [journal, setJournal] = useState<any[]>([]);
   const [agentState, setAgentState] = useState<any>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   const fetchTokens = async () => {
     setIsScanning(true);
@@ -60,12 +67,36 @@ export default function Dashboard() {
     }
   };
 
+  const connectWallet = async () => {
+    if (typeof window.ethereum === 'undefined') {
+      alert("Please install MetaMask or a compatible Web3 wallet.");
+      return;
+    }
+    setIsConnecting(true);
+    try {
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      if (accounts[0]) {
+        setWalletAddress(accounts[0]);
+        fetchPortfolio(accounts[0]);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
   useEffect(() => {
     fetchTokens();
-    fetchPortfolio();
     fetch('/api/journal').then((r) => r.json()).then(setJournal).catch(console.error);
     fetch('/api/agent/state').then((r) => r.json()).then(setAgentState).catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (walletAddress) {
+      fetchPortfolio(walletAddress);
+    }
+  }, [walletAddress]);
 
   useEffect(() => {
     if (selectedToken) {
@@ -121,7 +152,7 @@ export default function Dashboard() {
       priceTrend: pTrend,
       walletAllocation: walletAlloc,
       volatilityPenalty: volPenalty,
-      multiSourceBonus: 5, // Mock AI bonus
+      multiSourceBonus: 0, 
       whaleBonus: 0
     });
 
@@ -140,7 +171,7 @@ export default function Dashboard() {
         { subject: 'Price Trend', A: pTrend, fullMark: 25 },
         { subject: 'Wallet Alloc', A: walletAlloc, fullMark: 25 },
         { subject: 'Vol Penalty', A: volPenalty, fullMark: 25 },
-        { subject: 'AI Bonus', A: 5, fullMark: 15 },
+        { subject: 'AI Bonus', A: 0, fullMark: 15 },
       ],
       timingData: [
         { subject: 'RSI', A: rsiSc, fullMark: 40 },
@@ -182,27 +213,37 @@ export default function Dashboard() {
           <div className="text-right hidden md:block">
             <p className="text-[10px] uppercase text-[#71717A] tracking-wider">Monitored Wallet</p>
             <div className="flex items-center gap-2">
-              {isChangingAddress ? (
-                <form onSubmit={handleAddressChange} className="flex gap-2">
-                  <input 
-                    autoFocus
-                    placeholder="0x..." 
-                    value={newAddress}
-                    onChange={(e) => setNewAddress(e.target.value)}
-                    className="bg-[#1F1F23] border border-purple-500/50 rounded px-2 py-0.5 text-xs font-mono outline-none"
-                  />
-                  <button type="submit" className="text-[10px] text-purple-400 font-bold hover:text-purple-300">GO</button>
-                </form>
+              {walletAddress ? (
+                isChangingAddress ? (
+                  <form onSubmit={handleAddressChange} className="flex gap-2">
+                    <input 
+                      autoFocus
+                      placeholder="0x..." 
+                      value={newAddress}
+                      onChange={(e) => setNewAddress(e.target.value)}
+                      className="bg-[#1F1F23] border border-purple-500/50 rounded px-2 py-0.5 text-xs font-mono outline-none"
+                    />
+                    <button type="submit" className="text-[10px] text-purple-400 font-bold hover:text-purple-300">GO</button>
+                  </form>
+                ) : (
+                  <>
+                    <button 
+                      onClick={() => { setIsChangingAddress(true); setNewAddress(walletAddress); }}
+                      className="font-mono text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                    >
+                      {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+                    </button>
+                    <User className="w-3 h-3 text-[#71717A]" />
+                  </>
+                )
               ) : (
-                <>
-                  <button 
-                    onClick={() => { setIsChangingAddress(true); setNewAddress(walletAddress); }}
-                    className="font-mono text-xs text-purple-400 hover:text-purple-300 transition-colors"
-                  >
-                    {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
-                  </button>
-                  <User className="w-3 h-3 text-[#71717A]" />
-                </>
+                <button 
+                  onClick={connectWallet}
+                  className="px-3 py-1 bg-purple-600 hover:bg-purple-500 rounded text-[10px] font-bold transition-colors flex items-center gap-1.5"
+                >
+                  <Wallet className="w-3 h-3" />
+                  {isConnecting ? "CONNECTING..." : "CONNECT WALLET"}
+                </button>
               )}
             </div>
           </div>
@@ -210,7 +251,7 @@ export default function Dashboard() {
           <div className="text-right hidden md:block">
             <p className="text-[10px] uppercase text-[#71717A] tracking-wider">Portfolio Value</p>
             <p className="font-mono text-sm leading-none">
-              {portfolio ? `$${portfolio.total_value?.toFixed(2) || '0.00'}` : 'Loading...'}
+              {walletAddress ? (portfolio ? `$${portfolio.total_value?.toFixed(2) || '0.00'}` : 'Loading...') : '---'}
             </p>
           </div>
           <div className="w-px h-8 bg-[#1F1F23]" />
