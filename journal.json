@@ -1,5 +1,19 @@
 [
   {
+    "timestamp": "2026-05-09T16:43:24.541Z",
+    "userId": "usr_udk5iyj4",
+    "token": "N/A",
+    "symbol": "N/A",
+    "action": "skip",
+    "amountUsd": 0,
+    "convictionScore": 0,
+    "timingScore": 0,
+    "combinedScore": null,
+    "reason": "Command failed: npx zerion-cli portfolio 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 --json\nnode:internal/modules/cjs/loader:1456\r\n  const err = new Error(message);\r\n              ^\r\n\r\nError: Cannot find module '@open-wallet-standard/core-win32-x64-msvc'\r\nRequire stack:\r\n- C:\\Users\\DELL\\Downloads\\conviction-dca-agent\\node_modules\\@open-wallet-standard\\core\\index.js\r\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1456:15)\r\n    at defaultResolveImpl (node:internal/modules/cjs/loader:1066:19)\r\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1071:22)\r\n    at Module._load (node:internal/modules/cjs/loader:1242:25)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)\r\n    at Module.require (node:internal/modules/cjs/loader:1556:12)\r\n    at require (node:internal/modules/helpers:152:16)\r\n    at Object.<anonymous> (C:\\Users\\DELL\\Downloads\\conviction-dca-agent\\node_modules\\@open-wallet-standard\\core\\index.js:72:29)\r\n    at Module._compile (node:internal/modules/cjs/loader:1812:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1943:10) {\r\n  code: 'MODULE_NOT_FOUND',\r\n  requireStack: [\r\n    'C:\\\\Users\\\\DELL\\\\Downloads\\\\conviction-dca-agent\\\\node_modules\\\\@open-wallet-standard\\\\core\\\\index.js'\r\n  ]\r\n}\r\n\r\nNode.js v24.14.1\r\n",
+    "txHash": null,
+    "walletAddress": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+  },
+  {
     "timestamp": "2026-05-09T16:02:51.574Z",
     "userId": "usr_udk5iyj4",
     "token": "N/A",
