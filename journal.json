@@ -1,5 +1,19 @@
 [
   {
+    "timestamp": "2026-05-09T16:55:06.948Z",
+    "userId": "usr_udk5iyj4",
+    "token": "N/A",
+    "symbol": "N/A",
+    "action": "skip",
+    "amountUsd": 0,
+    "convictionScore": 0,
+    "timingScore": 0,
+    "combinedScore": null,
+    "reason": "Request failed with status code 429",
+    "txHash": null,
+    "walletAddress": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+  },
+  {
     "timestamp": "2026-05-09T16:43:24.541Z",
     "userId": "usr_udk5iyj4",
     "token": "N/A",
