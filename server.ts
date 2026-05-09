@@ -24,6 +24,7 @@ const execPromise = promisify(exec);
 const PORT = Number(process.env.PORT || 3000);
 const CYCLE_MS = Number(process.env.CYCLE_INTERVAL_MINUTES || 60) * 60 * 1000;
 const EXECUTE_TRADES = process.env.EXECUTE_TRADES === "true";
+const MANAGED_EXECUTION_WALLET = String(process.env.MANAGED_EXECUTION_WALLET || "").trim();
 const JOURNAL_PATH = path.join(process.cwd(), "journal.json");
 const STATE_PATH = path.join(process.cwd(), "agent-state.json");
 const USERS_PATH = path.join(process.cwd(), "users.json");
@@ -168,13 +169,6 @@ async function appendJournal(entry: JournalEntry) {
   }
 }
 
-async function createUserWalletFromZerion() {
-  const { stdout } = await execPromise("npx -y zerion-cli wallet create --json", { env: { ...process.env, ZERION_API_KEY: process.env.ZERION_API_KEY || "" } });
-  const parsed = JSON.parse(stdout || "{}");
-  const walletAddress = parsed.address || parsed.wallet?.address;
-  if (!walletAddress) throw new Error("wallet_create_failed");
-  return walletAddress;
-}
 
 async function createManagedWalletForUser(user: UserAccount, users: UserAccount[]) {
   const { stdout } = await execPromise("npx -y zerion-cli wallet create --json", {
@@ -292,9 +286,10 @@ function getDecision(convictionScore: number, timingScore: number, policy: Polic
   if (combined < 80) return { action: "buy" as const, amountUsd: 25, reason: "medium_confidence_entry", combined };
   return { action: "buy" as const, amountUsd: 50, reason: "high_confidence_entry", combined };
 }
-async function executeSwap(user: UserAccount, symbol: string, amountUsd: number) {
+async function executeSwap(_user: UserAccount, symbol: string, amountUsd: number) {
   if (!EXECUTE_TRADES) return { txHash: null };
-  const cmd = `npx -y zerion-cli swap --from USDC --to ${symbol} --amount ${amountUsd} --chain base --wallet ${user.walletAddress} --slippage 0.5 --json`;
+  if (!MANAGED_EXECUTION_WALLET) throw new Error("managed_execution_wallet_not_configured");
+  const cmd = `npx -y zerion-cli swap --from USDC --to ${symbol} --amount ${amountUsd} --chain base --wallet ${MANAGED_EXECUTION_WALLET} --slippage 0.5 --json`;
   const { stdout } = await execPromise(cmd, { env: { ...process.env, ZERION_API_KEY: process.env.ZERION_API_KEY || "" } });
   const parsed = JSON.parse(stdout || "{}");
   return { txHash: parsed.txHash || parsed.hash || null };
@@ -404,28 +399,16 @@ async function handleTelegramCommand(update: any) {
   const me = users.find((u) => u.id === user.id)!;
   const [command, ...rest] = text.split(" ");
   const arg = rest.join(" ").trim();
-  if (command === "/start") return sendTelegramMessage(chatId, "Welcome. Use /newwallet to create your managed Base wallet, then /deposit, /status, /run, /journal.");
-  if (command === "/newwallet") {
-    if (me.walletAddress) {
-      return sendTelegramMessage(chatId, `Managed wallet already exists:\n${me.walletAddress}\nUse /deposit to fund it.`);
-    }
-    try {
-      const created = await createManagedWalletForUser(me, users);
-      let msg = `Managed wallet created.\nAddress: ${created.walletAddress}\nDeposit Base USDC to this address.`;
-      if (created.privateKey) {
-        msg += `\n\nPrivate Key (save now): ${created.privateKey}`;
-      } else if (created.mnemonic) {
-        msg += `\n\nSeed Phrase (save now): ${created.mnemonic}`;
-      } else {
-        msg += `\n\nNote: Zerion CLI did not return key material in this response. Wallet is managed by this bot runtime.`;
-      }
-      return sendTelegramMessage(chatId, msg);
-    } catch (e: any) {
-      return sendTelegramMessage(chatId, `Wallet creation failed: ${e?.message || "unknown_error"}`);
-    }
+  if (command === "/start") return sendTelegramMessage(chatId, "Welcome. Use /register <0xwallet> (address only), then /status, /run, /journal.");
+  if (command === "/newwallet") return sendTelegramMessage(chatId, "Disabled: zerion wallet creation requires interactive passphrase. Ask operator to bootstrap wallet manually.");
+  if (command === "/register") {
+    if (!isValidEvmAddress(arg)) return sendTelegramMessage(chatId, "Invalid wallet. Use /register 0xYourBaseWalletAddress");
+    me.walletAddress = arg;
+    me.isAgentEnabled = true;
+    await writeUsers(users);
+    return sendTelegramMessage(chatId, `Address registered for monitoring: ${arg}\nAgent enabled.`);
   }
-  if (command === "/register") return sendTelegramMessage(chatId, "Disabled for safety. Use /newwallet to create a fresh managed wallet.");
-  if (command === "/deposit") return sendTelegramMessage(chatId, me.walletAddress ? `Deposit Base USDC to:\n${me.walletAddress}` : "No wallet yet. Use /newwallet first.");
+  if (command === "/deposit") return sendTelegramMessage(chatId, me.walletAddress ? `Deposit Base USDC to your wallet:\n${me.walletAddress}` : "No address registered. Use /register <0xwallet>.");
   if (command === "/status") return sendTelegramMessage(chatId, `Agent: ${me.isAgentEnabled ? "ON" : "OFF"}\nWallet: ${me.walletAddress || "not set"}\nMonitored tokens: ${memoryState.monitoredTokenCount}\nLast run: ${memoryState.lastRunAt || "n/a"}`);
   if (command === "/run") { runAgentCycle().catch(console.error); return sendTelegramMessage(chatId, "Manual cycle queued."); }
   if (command === "/journal") {
@@ -448,8 +431,17 @@ async function handleTelegramCommand(update: any) {
     await writeUsers(users);
     return sendTelegramMessage(chatId, "Managed wallet record deleted for this user. Run /newwallet to create a fresh one.");
   }
+  if (command === "/setupcheck") {
+    const checks = [
+      `EXECUTE_TRADES=${EXECUTE_TRADES}`,
+      `MANAGED_EXECUTION_WALLET=${MANAGED_EXECUTION_WALLET || "missing"}`,
+      `ZERION_API_KEY=${process.env.ZERION_API_KEY ? "set" : "missing"}`,
+      `GEMINI_API_KEY=${process.env.GEMINI_API_KEY ? "set" : "missing"}`,
+    ];
+    return sendTelegramMessage(chatId, checks.join("\n"));
+  }
   if (command === "/resume") {
-    if (!me.walletAddress) return sendTelegramMessage(chatId, "Create wallet first: /newwallet");
+    if (!me.walletAddress) return sendTelegramMessage(chatId, "Register address first: /register <0xwallet>");
     me.isAgentEnabled = true; await writeUsers(users); return sendTelegramMessage(chatId, "Agent resumed.");
   }
 }
@@ -474,7 +466,10 @@ async function startServer() {
     try {
       const name = String(req.body?.name || "New User");
       const providedWallet = String(req.body?.walletAddress || "").trim();
-      const walletAddress = providedWallet || await createUserWalletFromZerion();
+      if (!isValidEvmAddress(providedWallet)) {
+        return res.status(400).json({ error: "wallet_address_required_and_must_be_valid_evm_address" });
+      }
+      const walletAddress = providedWallet;
       const user: UserAccount = { id: id(), name, walletAddress, telegramChatId: req.body?.telegramChatId ? String(req.body.telegramChatId) : undefined, createdAt: new Date().toISOString(), isAgentEnabled: true, whaleWallets: [...DEFAULT_WHALE_WALLETS] };
       const users = await readUsers();
       users.push(user);

@@ -1,6 +1,6 @@
 # Conviction DCA Agent (Telegram + Base + Zerion CLI)
 
-Telegram-first autonomous onchain DCA agent. Users create a fresh managed wallet via Telegram, deposit Base USDC, and the bot runs scheduled scoring/execution cycles.
+Telegram-first autonomous onchain DCA agent. Users register address-only for monitoring, and trades execute from an operator-managed wallet/token.
 
 ## Quick Start
 
@@ -15,6 +15,7 @@ Telegram-first autonomous onchain DCA agent. Users create a fresh managed wallet
 - `ZERION_API_KEY`
 - `GEMINI_API_KEY`
 - `TELEGRAM_BOT_TOKEN`
+- `MANAGED_EXECUTION_WALLET` (pre-bootstrapped Zerion wallet name/address used for execution)
 
 ## Optional Env
 
@@ -25,7 +26,7 @@ Telegram-first autonomous onchain DCA agent. Users create a fresh managed wallet
 ## Telegram Commands
 
 - `/start`
-- `/newwallet`
+- `/register <0xwallet>`
 - `/deposit`
 - `/status`
 - `/run`
@@ -35,7 +36,7 @@ Telegram-first autonomous onchain DCA agent. Users create a fresh managed wallet
 - `/deletewallet`
 - `/resume`
 
-Users should not share private keys from external wallets. The intended flow is creating a fresh managed wallet with `/newwallet`, funding it, then running the agent.
+Users should never share private keys. Wallet creation in `zerion-cli` is interactive/manual by design; run it once as operator, then let the bot trade via agent token policy.
 
 ## Runtime Files
 
